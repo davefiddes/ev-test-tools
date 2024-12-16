@@ -4,10 +4,6 @@ import time
 from can.typechecking import CanData, Channel
 from typing import Optional
 
-PCAN_CH = "can0"
-
-DEFAULT_CHANNEL = PCAN_CH
-
 
 class PeriodicMessage(can.Message):
     """Periodic transmitted CAN message.
@@ -29,8 +25,6 @@ class PeriodicMessage(can.Message):
             is_rx=False,
             channel=channel,
         )
-        if channel is None:
-            self.channel = DEFAULT_CHANNEL
         self.frequency = frequency
         self.delta = 1.0 / frequency  # seconds
         self.car = car

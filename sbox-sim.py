@@ -25,7 +25,6 @@ from PySide6.QtWidgets import (
 )
 from PySide6 import QtAsyncio
 
-from message import PCAN_CH
 import ieb
 import igpm
 import other
@@ -112,7 +111,7 @@ class Car:
         if "--virtual" in sys.argv:
             self.bus = can.interface.Bus("virtual", interface="virtual")
         else:
-            self.bus = can.Bus(channel=PCAN_CH)
+            self.bus = can.Bus()
 
         # gather creates a task for each coroutine
         await asyncio.gather(
