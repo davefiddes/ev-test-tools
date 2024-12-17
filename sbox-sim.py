@@ -25,12 +25,10 @@ from PySide6.QtWidgets import (
 )
 from PySide6 import QtAsyncio
 
-import ieb
-import igpm
+import sbox_can_messages
 import other
-import srscm
 
-can_log_name = f"{datetime.datetime.now().isoformat()}-bench_kona.log"
+can_log_name = f"{datetime.datetime.now().isoformat()}-sbox-sim.log"
 can_log = open(can_log_name, "w")
 print(f"Writing CAN messages to {can_log_name}")
 
@@ -57,7 +55,7 @@ class Car:
 
         # Set up all the messages we'll be sending
         self.tx_messages = {}
-        for mod in (ieb, igpm, srscm, other):
+        for mod in (sbox_can_messages, other):
             for m in mod.get_messages(self):
                 assert (
                     m.arbitration_id not in self.tx_messages
@@ -68,7 +66,8 @@ class Car:
         """Handle updates, will be called from a non-asyncio non-Qt thread!!"""
         print(msg, file=can_log)
         if msg.arbitration_id in self.tx_messages:
-            print(f"WARNING: {msg.arbitration_id:#x} appears in both TX and RX")
+            print(
+                f"WARNING: {msg.arbitration_id:#x} appears in both TX and RX")
 
         # update the msgs per second counter
         self._new_msgs += 1
@@ -107,7 +106,7 @@ class Car:
         self._notifier.add_listener(self.on_message)
 
     async def start(self):
-        """Set up the asyncio bench_kona "model" """
+        """Set up the asyncio sbox-sim "model" """
         if "--virtual" in sys.argv:
             self.bus = can.interface.Bus("virtual", interface="virtual")
         else:
