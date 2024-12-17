@@ -1,5 +1,7 @@
 """CAN messages sent by the SBox"""
 
+import struct
+
 from message import CounterField, PeriodicMessage
 
 
@@ -19,8 +21,7 @@ class Current(PeriodicMessage):
 
     def update(self):
         self.alive.update()
-
-        # fill out current value
+        self.data[:3] = struct.pack("<i", int(self.car.current*1000))[:3]
 
 
 class PackVoltage(PeriodicMessage):
@@ -39,8 +40,7 @@ class PackVoltage(PeriodicMessage):
 
     def update(self):
         self.alive.update()
-
-        # fill out voltage value
+        self.data[:3] = struct.pack("<i", int(self.car.voltage*1000))[:3]
 
 
 class PostContactorVoltage(PeriodicMessage):
@@ -59,8 +59,8 @@ class PostContactorVoltage(PeriodicMessage):
 
     def update(self):
         self.alive.update()
-
-        # fill out voltage value
+        self.data[:3] = struct.pack(
+            "<i", int(self.car.output_voltage*1000))[:3]
 
 
 def get_messages(car):

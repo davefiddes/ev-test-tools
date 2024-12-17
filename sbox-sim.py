@@ -14,12 +14,12 @@ from PySide6.QtCore import Qt, QObject, Signal, Slot, QTimer
 from PySide6.QtWidgets import (
     QApplication,
     QCheckBox,
+    QDoubleSpinBox,
     QGridLayout,
     QGroupBox,
     QHBoxLayout,
     QLabel,
     QMainWindow,
-    QPushButton,
     QVBoxLayout,
     QWidget,
 )
@@ -36,15 +36,14 @@ print(f"Writing CAN messages to {can_log_name}")
 class Car:
     def __init__(self):
         # fields updated by user
-        self.braking = True  # start with virtual foot on brake
-        self.charge_port_locked = False
-        self.ignition_on = False
+        self.voltage = 350
+        self.current = 0
 
         # fields updated from CAN
         self.msgs_per_sec = 0
-        self.contactor_status = 0x00
-        self.contactor_closed = False
-        self.inverter_voltage = None
+        self.pos_contactor_closed = False
+        self.neg_contactor_closed = False
+        self.pch_contactor_closed = False
 
         # internal stuff
         self.bus = None
@@ -62,6 +61,16 @@ class Car:
                 )  # check for accidental dupes
                 self.tx_messages[m.arbitration_id] = m
 
+    @property
+    def output_voltage(self) -> float:
+        """Synthesize the output voltage based on the state of the
+        contactors"""
+        if ((self.pos_contactor_closed or self.pch_contactor_closed)
+                and self.neg_contactor_closed):
+            return self.voltage
+        else:
+            return 0
+
     def on_message(self, msg: can.Message):
         """Handle updates, will be called from a non-asyncio non-Qt thread!!"""
         print(msg, file=can_log)
@@ -77,17 +86,13 @@ class Car:
             self._new_msgs = 0
             self._last_sec = sec
 
-        if msg.arbitration_id == 0x5a3:
-            # read contactor status
-            self.contactor_status = msg.data[0]
-            self.contactor_closed = bool(msg.data[0] & (1 << 6))
-        elif msg.arbitration_id == 0x524:
-            # update inverter voltage
-            self.inverter_voltage = msg.data[0] + (msg.data[1] << 8)
-            self._last_inverter_v = sec
-        elif self._last_inverter_v is not None and sec - self._last_inverter_v > 4:
-            # Missing inverter voltage message
-            self._last_inverter_v = None
+        if msg.arbitration_id == 0x100:
+            # ControlContactors
+            pass
+
+        elif msg.arbitration_id == 0x300:
+            # Setup
+            pass
 
     async def rx_coro(self, bus: can.BusABC):
         """Receive from the CAN bus and log whatever it sends us, plus invoke handler."""
@@ -118,40 +123,6 @@ class Car:
             *(m.coro(self.bus, can_log) for m in self.tx_messages.values()),
         )
 
-    async def send_ac_current(self, value):
-        """ Send a short burst of CAN messages to update OBC state
-        """
-        print("Starting AC charge current change...")
-        msg = can.Message(arbitration_id=0x562,
-                          data=[0x00, value, 0x03, 0x00, 0xFF, 0xFF, 0x00, 0x00])
-        print(msg)
-        for _ in range(3):
-            self.bus.send(msg, timeout=0.05)
-            await asyncio.sleep(0.040)
-
-        msg.data[1] = 0x00
-        print(msg)
-
-        for _ in range(3):
-            self.bus.send(msg, timeout=0.05)
-            await asyncio.sleep(0.040)
-
-        print("Finished AC charge current change")
-
-    async def send_ac_charge_limit(self, percent):
-        """ Send a short burst of CAN messages to update charge termination
-        """
-        print(f"Starting AC charge to {percent}% change...")
-        level = int(percent * 2)
-        msg = can.Message(arbitration_id=0x562,
-                          data=[0x00, 0x1C, 0x03, 0x00, level, 0xFF, 0x00, 0x00])
-        print(msg)
-        for _ in range(3):
-            self.bus.send(msg, timeout=0.05)
-            await asyncio.sleep(0.040)
-
-        print(f"Finished AC charge to {percent}% change")
-
 
 class MainWindow(QMainWindow):
     def __init__(self, car):
@@ -164,65 +135,34 @@ class MainWindow(QMainWindow):
         layout = QVBoxLayout(widget)
 
         status_layout = QHBoxLayout()
-        self.contactor_on = QLabel("--")
-        self.contactor_status = QLabel("0x??")
-        self.inverter_v = QLabel("?? V")
-        self.inverter_v.setEnabled(False)
-        for w in (QLabel("Contactor"),
-                  self.contactor_on,
-                  self.contactor_status,
-                  QLabel("Inverter HV"),
-                  self.inverter_v):
+        self.pos_contactor = QLabel("--")
+        self.neg_contactor = QLabel("--")
+        self.pch_contactor = QLabel("--")
+        for w in (QLabel("Positive contactor:"),
+                  self.pos_contactor,
+                  QLabel("Negative contactor:"),
+                  self.neg_contactor,
+                  QLabel("Pre-charge contactor:"),
+                  self.pch_contactor):
             status_layout.addWidget(w)
         layout.addLayout(status_layout)
 
         self.msgs_per_sec = QLabel("-")
         layout.addWidget(self.msgs_per_sec)
 
-        self.cb_ignition = QCheckBox("Ignition On")
-        self.cb_ignition.toggled.connect(self.on_ignition_toggled)
-        layout.addWidget(self.cb_ignition)
+        layout.addWidget(QLabel("Voltage:"))
+        self.edit_voltage = QDoubleSpinBox()
+        self.edit_voltage.setRange(0, 500)
+        self.edit_voltage.setValue(self.car.voltage)
+        self.edit_voltage.valueChanged.connect(self.on_voltage_changed)
+        layout.addWidget(self.edit_voltage)
 
-        self.cb_braking = QCheckBox("Braking")
-        self.cb_braking.setChecked(True)
-        self.cb_braking.toggled.connect(self.on_braking_toggled)
-
-        layout.addWidget(self.cb_braking)
-
-        self.cb_locked = QCheckBox("Charge Port Locked")
-        self.cb_locked.toggled.connect(self.on_charge_port_lock_toggled)
-
-        layout.addWidget(self.cb_locked)
-
-        # AC Charge Current buttons
-        def make_send_ac_charge_current_fn(value):
-            # bind pct to unique value in the lambda
-            return lambda checked: asyncio.create_task(
-                self.car.send_ac_current(value))
-
-        charge_layout = QHBoxLayout()
-        charge_layout.addWidget(QLabel("AC Charge Current"))
-        for label, value in (("Maximum", 0x08),
-                             ("Reduced", 0x0C),
-                             ("Minimum", 0x04)):
-            button = QPushButton(label)
-            button.clicked.connect(make_send_ac_charge_current_fn(value))
-            charge_layout.addWidget(button)
-        layout.addLayout(charge_layout)
-
-        # AC charge termination %
-        def make_send_ac_charge_limit_fn(pct):
-            # bind pct to unique value in the lambda
-            return lambda checked: asyncio.create_task(
-                self.car.send_ac_charge_limit(pct))
-
-        limit_layout = QHBoxLayout()
-        limit_layout.addWidget(QLabel("AC Charge Limit"))
-        for pct in (50, 70, 100):
-            button = QPushButton(f"{pct}%")
-            button.clicked.connect(make_send_ac_charge_limit_fn(pct))
-            limit_layout.addWidget(button)
-        layout.addLayout(limit_layout)
+        layout.addWidget(QLabel("Current:"))
+        self.edit_current = QDoubleSpinBox()
+        self.edit_current.setRange(-200.0, 200.0)
+        self.edit_current.setValue(self.car.current)
+        self.edit_current.valueChanged.connect(self.on_current_changed)
+        layout.addWidget(self.edit_current)
 
         txGroup = QGroupBox("Enabled TX Messages")
         txLayout = QGridLayout()
@@ -233,7 +173,7 @@ class MainWindow(QMainWindow):
         for i, m in enumerate(
             sorted(car.tx_messages.values(), key=lambda m: m.arbitration_id)
         ):
-            summary = m.__doc__
+            summary = m.__class__.__name__
             if "\n" in summary:
                 summary = summary[: summary.index("\n")]
             cb = QCheckBox(hex(m.arbitration_id) + " - " + summary)
@@ -247,30 +187,23 @@ class MainWindow(QMainWindow):
         self.refresh.start(250)
 
     @Slot(bool)
-    def on_braking_toggled(self, is_checked):
-        print(f"Braking now {is_checked}")
-        self.car.braking = is_checked
+    def on_voltage_changed(self, value):
+        print(f"Voltage now {value}")
+        self.car.voltage = value
 
     @Slot(bool)
-    def on_charge_port_lock_toggled(self, is_checked):
-        print(f"Charge port lock now {is_checked}")
-        self.car.charge_port_locked = is_checked
-
-    @Slot(bool)
-    def on_ignition_toggled(self, is_checked):
-        print(f"Ignition now {is_checked}")
-        self.car.ignition_on = is_checked
+    def on_current_changed(self, value):
+        print(f"Current now {value}")
+        self.car.current = value
 
     @Slot()
     def refresh_ui(self):
-        self.contactor_on.setText("ON" if self.car.contactor_closed else "OFF")
-        self.contactor_status.setText(hex(self.car.contactor_status))
-        v = self.car.inverter_voltage
-        if self.car._last_inverter_v is None:
-            self.inverter_v.setEnabled(False)
-        else:
-            self.inverter_v.setText(f"{v} V")
-            self.inverter_v.setEnabled(True)
+        self.pos_contactor.setText(
+            "ON" if self.car.pos_contactor_closed else "OFF")
+        self.neg_contactor.setText(
+            "ON" if self.car.neg_contactor_closed else "OFF")
+        self.pch_contactor.setText(
+            "ON" if self.car.pch_contactor_closed else "OFF")
 
         self.msgs_per_sec.setText(f"{self.car.msgs_per_sec} messages/sec")
 
