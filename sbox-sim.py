@@ -44,6 +44,7 @@ class Car:
         self.pos_contactor_closed = False
         self.neg_contactor_closed = False
         self.pch_contactor_closed = False
+        self.contactor_setup = False
 
         # internal stuff
         self.bus = None
@@ -65,11 +66,12 @@ class Car:
     def output_voltage(self) -> float:
         """Synthesize the output voltage based on the state of the
         contactors"""
-        if ((self.pos_contactor_closed or self.pch_contactor_closed)
-                and self.neg_contactor_closed):
+        if (self.contactor_setup and
+            (self.pos_contactor_closed or self.pch_contactor_closed) and
+                self.neg_contactor_closed):
             return self.voltage
-        else:
-            return 0
+
+        return 0
 
     def on_message(self, msg: can.Message):
         """Handle updates, will be called from a non-asyncio non-Qt thread!!"""
@@ -86,13 +88,64 @@ class Car:
             self._new_msgs = 0
             self._last_sec = sec
 
-        if msg.arbitration_id == 0x100:
-            # ControlContactors
-            pass
+        match msg.arbitration_id:
+            case 0x100:
+                self.on_control_contactors(msg)
 
-        elif msg.arbitration_id == 0x300:
-            # Setup
-            pass
+            case 0x300:
+                self.on_setup_contactors(msg)
+
+    def on_control_contactors(self, msg: can.Message):
+        """Process ControlContactors frames: 4-bytes sent every 20ms"""
+        if msg.dlc != 4:
+            return
+
+        match msg.data[0]:
+
+            case 0:
+                self.pos_contactor_closed = False
+                self.neg_contactor_closed = False
+                self.pch_contactor_closed = False
+
+            case 0xA6:
+                self.pos_contactor_closed = False
+                self.neg_contactor_closed = True
+                self.pch_contactor_closed = True
+
+            case 0xAA:
+                self.pos_contactor_closed = True
+                self.neg_contactor_closed = True
+                self.pch_contactor_closed = True
+
+            case 0x86:
+                self.pos_contactor_closed = False
+                self.neg_contactor_closed = False
+                self.pch_contactor_closed = True
+
+            case 0x0A:
+                self.pos_contactor_closed = True
+                self.neg_contactor_closed = False
+                self.pch_contactor_closed = False
+
+            case 0x62:
+                self.pos_contactor_closed = False
+                self.neg_contactor_closed = True
+                self.pch_contactor_closed = True
+
+            case _ as command:
+                print(f"Unrecognised ContactorControl state {command:#x}")
+                self.pos_contactor_closed = False
+                self.neg_contactor_closed = False
+                self.pch_contactor_closed = False
+
+    def on_setup_contactors(self, msg: can.Message):
+        """Process Setup frames: 4-bytes sent every 20ms
+        Just recognise the one known good setup frame that enables access to
+        the contactors."""
+        if msg.dlc == 4 and msg.data == b'\xff\xfe\xff\xff':
+            self.contactor_setup = True
+        else:
+            self.contactor_setup = False
 
     async def rx_coro(self, bus: can.BusABC):
         """Receive from the CAN bus and log whatever it sends us, plus invoke handler."""
@@ -135,15 +188,19 @@ class MainWindow(QMainWindow):
         layout = QVBoxLayout(widget)
 
         status_layout = QHBoxLayout()
+        self.contactor_setup = QLabel("--")
         self.pos_contactor = QLabel("--")
         self.neg_contactor = QLabel("--")
         self.pch_contactor = QLabel("--")
-        for w in (QLabel("Positive contactor:"),
+        for w in (QLabel("Contactor Setup:"),
+                  self.contactor_setup,
+                  QLabel("Positive contactor:"),
                   self.pos_contactor,
                   QLabel("Negative contactor:"),
                   self.neg_contactor,
                   QLabel("Pre-charge contactor:"),
-                  self.pch_contactor):
+                  self.pch_contactor
+                  ):
             status_layout.addWidget(w)
         layout.addLayout(status_layout)
 
@@ -198,6 +255,9 @@ class MainWindow(QMainWindow):
 
     @Slot()
     def refresh_ui(self):
+        self.contactor_setup.setText(
+            "YES" if self.car.contactor_setup else "NO")
+
         self.pos_contactor.setText(
             "ON" if self.car.pos_contactor_closed else "OFF")
         self.neg_contactor.setText(
