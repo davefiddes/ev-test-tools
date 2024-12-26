@@ -1,14 +1,15 @@
 #!/usr/bin/env python
 #
 import asyncio
-import can
+from typing import List, Optional
 import math
 import sys
 import datetime
 import time
 import signal
+
+import can
 from can.notifier import MessageRecipient
-from typing import List
 
 from PySide6.QtCore import Qt, QObject, Signal, Slot, QTimer
 from PySide6.QtWidgets import (
@@ -32,6 +33,10 @@ can_log_name = f"{datetime.datetime.now().isoformat()}-sbox-sim.log"
 can_log = open(can_log_name, "w")
 print(f"Writing CAN messages to {can_log_name}")
 
+PRECHARGE_RESISTOR = 300  # Ohms
+INVERTER_CAPACITANCE = (550+68+68) * 1e-6  # Example from Tesla M3 inverter
+PRECHARGE_RC = PRECHARGE_RESISTOR * INVERTER_CAPACITANCE
+
 
 class Car:
     def __init__(self):
@@ -53,6 +58,8 @@ class Car:
         self._last_sec = 0
         self._last_inverter_v = 0
 
+        self._pch_start: Optional[datetime.datetime] = None
+
         # Set up all the messages we'll be sending
         self.tx_messages = {}
         for mod in (sbox_can_messages, other):
@@ -66,10 +73,17 @@ class Car:
     def output_voltage(self) -> float:
         """Synthesize the output voltage based on the state of the
         contactors"""
-        if (self.contactor_setup and
-            (self.pos_contactor_closed or self.pch_contactor_closed) and
-                self.neg_contactor_closed):
-            return self.voltage
+        if self.contactor_setup:
+            if self._pch_start is not None:
+                t = datetime.datetime.now() - self._pch_start
+                voltage = self.voltage * \
+                    (1 - math.exp(-t.total_seconds()/PRECHARGE_RC))
+                return voltage
+
+            if ((self.pos_contactor_closed or self.pch_contactor_closed) and
+                    self.neg_contactor_closed):
+                return self.voltage
+            return 0
 
         return 0
 
@@ -106,8 +120,14 @@ class Car:
                 self.pos_contactor_closed = False
                 self.neg_contactor_closed = False
                 self.pch_contactor_closed = False
+                self._pch_start = None
 
             case 0xA6:
+                if ((not self.pos_contactor_closed) and
+                    (not self.neg_contactor_closed) and
+                        (not self.pch_contactor_closed)):
+                    self._pch_start = datetime.datetime.now()
+
                 self.pos_contactor_closed = False
                 self.neg_contactor_closed = True
                 self.pch_contactor_closed = True
@@ -116,27 +136,32 @@ class Car:
                 self.pos_contactor_closed = True
                 self.neg_contactor_closed = True
                 self.pch_contactor_closed = True
+                self._pch_start = None
 
             case 0x86:
                 self.pos_contactor_closed = False
                 self.neg_contactor_closed = False
                 self.pch_contactor_closed = True
+                self._pch_start = None
 
             case 0x0A:
                 self.pos_contactor_closed = True
                 self.neg_contactor_closed = False
                 self.pch_contactor_closed = False
+                self._pch_start = None
 
             case 0x62:
                 self.pos_contactor_closed = False
                 self.neg_contactor_closed = True
                 self.pch_contactor_closed = True
+                self._pch_start = None
 
             case _ as command:
                 print(f"Unrecognised ContactorControl state {command:#x}")
                 self.pos_contactor_closed = False
                 self.neg_contactor_closed = False
                 self.pch_contactor_closed = False
+                self._pch_start = None
 
     def on_setup_contactors(self, msg: can.Message):
         """Process Setup frames: 4-bytes sent every 20ms
