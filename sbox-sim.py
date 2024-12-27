@@ -38,7 +38,7 @@ INVERTER_CAPACITANCE = (550+68+68) * 1e-6  # Example from Tesla M3 inverter
 PRECHARGE_RC = PRECHARGE_RESISTOR * INVERTER_CAPACITANCE
 
 
-class Car:
+class SBox:
     def __init__(self):
         # fields updated by user
         self.voltage = 350
@@ -203,9 +203,9 @@ class Car:
 
 
 class MainWindow(QMainWindow):
-    def __init__(self, car):
+    def __init__(self, sbox):
         super().__init__()
-        self.car = car
+        self.sbox = sbox
 
         widget = QWidget()
         self.setCentralWidget(widget)
@@ -235,25 +235,25 @@ class MainWindow(QMainWindow):
         layout.addWidget(QLabel("Voltage:"))
         self.edit_voltage = QDoubleSpinBox()
         self.edit_voltage.setRange(0, 500)
-        self.edit_voltage.setValue(self.car.voltage)
+        self.edit_voltage.setValue(self.sbox.voltage)
         self.edit_voltage.valueChanged.connect(self.on_voltage_changed)
         layout.addWidget(self.edit_voltage)
 
         layout.addWidget(QLabel("Current:"))
         self.edit_current = QDoubleSpinBox()
         self.edit_current.setRange(-200.0, 200.0)
-        self.edit_current.setValue(self.car.current)
+        self.edit_current.setValue(self.sbox.current)
         self.edit_current.valueChanged.connect(self.on_current_changed)
         layout.addWidget(self.edit_current)
 
         txGroup = QGroupBox("Enabled TX Messages")
         txLayout = QGridLayout()
         COLS = 3
-        num_msgs = len(car.tx_messages)
+        num_msgs = len(sbox.tx_messages)
         msgs_per_col = math.ceil(num_msgs / COLS)
         txGroup.setLayout(txLayout)
         for i, m in enumerate(
-            sorted(car.tx_messages.values(), key=lambda m: m.arbitration_id)
+            sorted(sbox.tx_messages.values(), key=lambda m: m.arbitration_id)
         ):
             summary = m.__class__.__name__
             if "\n" in summary:
@@ -271,26 +271,26 @@ class MainWindow(QMainWindow):
     @Slot(bool)
     def on_voltage_changed(self, value):
         print(f"Voltage now {value}")
-        self.car.voltage = value
+        self.sbox.voltage = value
 
     @Slot(bool)
     def on_current_changed(self, value):
         print(f"Current now {value}")
-        self.car.current = value
+        self.sbox.current = value
 
     @Slot()
     def refresh_ui(self):
         self.contactor_setup.setText(
-            "YES" if self.car.contactor_setup else "NO")
+            "YES" if self.sbox.contactor_setup else "NO")
 
         self.pos_contactor.setText(
-            "ON" if self.car.pos_contactor_closed else "OFF")
+            "ON" if self.sbox.pos_contactor_closed else "OFF")
         self.neg_contactor.setText(
-            "ON" if self.car.neg_contactor_closed else "OFF")
+            "ON" if self.sbox.neg_contactor_closed else "OFF")
         self.pch_contactor.setText(
-            "ON" if self.car.pch_contactor_closed else "OFF")
+            "ON" if self.sbox.pch_contactor_closed else "OFF")
 
-        self.msgs_per_sec.setText(f"{self.car.msgs_per_sec} messages/sec")
+        self.msgs_per_sec.setText(f"{self.sbox.msgs_per_sec} messages/sec")
 
 
 class AsyncHelper(QObject):
@@ -311,24 +311,24 @@ class AsyncHelper(QObject):
 
 
 if __name__ == "__main__":
-    car = Car()
+    sbox = SBox()
 
     if "--no-ui" in sys.argv:
-        asyncio.run(car.start())
+        asyncio.run(sbox.start())
     else:
 
         # Otherwise, display a UI while running model in background asyncio
         app = QApplication(sys.argv)
         asyncio.set_event_loop_policy(QtAsyncio.QAsyncioEventLoopPolicy())
 
-        main_window = MainWindow(car)
+        main_window = MainWindow(sbox)
         main_window.show()
 
-        # Run car.start() coro on the event loop, once it exists.
+        # Run sbox.start() coro on the event loop, once it exists.
         # Seems a bit verbose...?
         timer = QTimer(app)
         timer.setSingleShot(True)
-        timer.timeout.connect(lambda: asyncio.ensure_future(car.start()))
+        timer.timeout.connect(lambda: asyncio.ensure_future(sbox.start()))
         timer.start()
 
         signal.signal(signal.SIGINT, signal.SIG_DFL)

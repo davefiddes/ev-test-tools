@@ -12,7 +12,7 @@ class PeriodicMessage(can.Message):
 
     def __init__(
         self,
-        car,
+        sbox,
         arbitration_id: int,
         data: CanData,
         frequency: int,
@@ -27,7 +27,7 @@ class PeriodicMessage(can.Message):
         )
         self.frequency = frequency
         self.delta = 1.0 / frequency  # seconds
-        self.car = car
+        self.sbox = sbox
         self.enabled = True
 
     def __repr__(self):

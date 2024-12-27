@@ -13,12 +13,12 @@ MSGS = [
 ]
 
 
-def get_messages(car):
+def get_messages(sbox):
     return [
-        PeriodicMessage(car, can_id, bytes.fromhex(data.replace(",", "")), hz)
+        PeriodicMessage(sbox, can_id, bytes.fromhex(data.replace(",", "")), hz)
         for (can_id, data, hz) in MSGS
     ] + [
-        k(car)
+        k(sbox)
         for k in globals().values()
         if type(k) == type and k != PeriodicMessage and issubclass(k, PeriodicMessage)
     ]
