@@ -1,4 +1,4 @@
-"""CAN messages sent by the SBox"""
+"""CAN messages sent out by the SBox"""
 
 import struct
 

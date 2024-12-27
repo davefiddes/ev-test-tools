@@ -26,7 +26,7 @@ from PySide6.QtWidgets import (
 )
 from PySide6 import QtAsyncio
 
-import sbox_can_messages
+import sbox_output_messages
 import other
 
 can_log_name = f"{datetime.datetime.now().isoformat()}-sbox-sim.log"
@@ -62,7 +62,7 @@ class SBox:
 
         # Set up all the messages we'll be sending
         self.tx_messages = {}
-        for mod in (sbox_can_messages, other):
+        for mod in (sbox_output_messages, other):
             for m in mod.get_messages(self):
                 assert (
                     m.arbitration_id not in self.tx_messages
