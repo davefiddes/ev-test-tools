@@ -30,7 +30,7 @@ dependencies = ["python-can", "pyside6>=6.7.0"]
 
 [project.optional-dependencies]
 dev = ["check-manifest", "flake8", "pre-commit"]
-test = ["nox","coverage", "pytest", "pytest-cov"]
+test = ["coverage", "pytest", "pytest-cov"]
 
 [project.urls]
 "Homepage" = "https://github.com/davefiddes/ev-test-tools/"
