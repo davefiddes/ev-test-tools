@@ -58,7 +58,8 @@ class PeriodicMessage(can.Message):
                 try:
                     bus.send(self, timeout=0.025)
                 except can.CanError as e:
-                    print(f"ID {self.arbitration_id:#x} ({self.frequency}Hz) failed to send: {e}")
+                    print(f"ID {self.arbitration_id:#x} ({self.frequency}Hz) "
+                          f"failed to send: {e}")
                 next_tx += self.delta
             await sleep(max(0, next_tx - time.time()))
 

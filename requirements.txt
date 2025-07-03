@@ -1,2 +1,0 @@
-python-can
-pyside6>=6.7.0

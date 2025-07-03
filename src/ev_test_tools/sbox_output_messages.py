@@ -2,7 +2,7 @@
 
 import struct
 
-from message import CounterField, PeriodicMessage
+from .message import CounterField, PeriodicMessage
 
 
 class Current(PeriodicMessage):
@@ -65,7 +65,7 @@ class PostContactorVoltage(PeriodicMessage):
 
 def get_messages(sbox):
     return [
-        k(sbox)
-        for k in globals().values()
-        if type(k) == type and k != PeriodicMessage and issubclass(k, PeriodicMessage)
+        k(sbox) for k in globals().values()
+        if (isinstance(k, type) and k != PeriodicMessage and
+            issubclass(k, PeriodicMessage))
     ]

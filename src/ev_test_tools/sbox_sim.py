@@ -1,5 +1,5 @@
-#!/usr/bin/env python
-#
+"""BMW Safety Box (SBox) simulator"""
+
 import asyncio
 from typing import List, Optional
 import math
@@ -11,7 +11,7 @@ import signal
 import can
 from can.notifier import MessageRecipient
 
-from PySide6.QtCore import Qt, QObject, Signal, Slot, QTimer
+from PySide6.QtCore import QObject, Signal, Slot, QTimer
 from PySide6.QtWidgets import (
     QApplication,
     QCheckBox,
@@ -26,8 +26,8 @@ from PySide6.QtWidgets import (
 )
 from PySide6 import QtAsyncio
 
-import sbox_output_messages
-import other
+from . import sbox_output_messages
+from . import other
 
 can_log_name = f"{datetime.datetime.now().isoformat()}-sbox-sim.log"
 can_log = open(can_log_name, "w")
@@ -173,7 +173,8 @@ class SBox:
             self.contactor_setup = False
 
     async def rx_coro(self, bus: can.BusABC):
-        """Receive from the CAN bus and log whatever it sends us, plus invoke handler."""
+        """Receive from the CAN bus and log whatever it sends us, plus invoke
+        handler."""
         reader = can.AsyncBufferedReader()
 
         listeners: List[MessageRecipient] = [
@@ -181,10 +182,11 @@ class SBox:
         ]
 
         # Note: the async version of this class doesn't use asyncio event loop
-        # unless the bus has a filno() property to use for the listener. It falls
-        # back to a thread, meaning the callbacks are called in the thread context
-        # still. This is incompoatible with the Python QAsyncioEventLoopPolicy that
-        # requires any thread using asyncio to be main thread or a QThread
+        # unless the bus has a filno() property to use for the listener. It
+        # falls back to a thread, meaning the callbacks are called in the
+        # thread context still. This is incompoatible with the Python
+        # QAsyncioEventLoopPolicy that requires any thread using asyncio to be
+        # main thread or a QThread
         self._notifier = can.Notifier(bus, listeners)
         self._notifier.add_listener(self.on_message)
 
@@ -264,7 +266,7 @@ class MainWindow(QMainWindow):
             txLayout.addWidget(cb, i % msgs_per_col, i // msgs_per_col)
         layout.addWidget(txGroup)
 
-        self.refresh = QTimer(app)
+        self.refresh = QTimer(self)
         self.refresh.timeout.connect(self.refresh_ui)
         self.refresh.start(250)
 
@@ -310,7 +312,7 @@ class AsyncHelper(QObject):
         asyncio.ensure_future(self.entry())
 
 
-if __name__ == "__main__":
+def main() -> None:
     sbox = SBox()
 
     if "--no-ui" in sys.argv:
@@ -334,3 +336,7 @@ if __name__ == "__main__":
         signal.signal(signal.SIGINT, signal.SIG_DFL)
 
         asyncio.get_event_loop().run_forever()
+
+
+if __name__ == "__main__":
+    main()

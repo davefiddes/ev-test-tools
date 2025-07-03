@@ -1,2 +1,17 @@
+# general things to ignore
+build/
+dist/
+*.egg-info/
+*.egg
+*.py[cod]
 __pycache__/
+*.so
+*~
+venv/
+
+# Log files created by the simulator(s)
 *.log
+
+# due to using tox and pytest
+.tox
+.cache
