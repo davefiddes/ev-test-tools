@@ -33,16 +33,15 @@ can_log_name = f"{datetime.datetime.now().isoformat()}-sbox-sim.log"
 can_log = open(can_log_name, "w")
 print(f"Writing CAN messages to {can_log_name}")
 
-PRECHARGE_RESISTOR = 300  # Ohms
-INVERTER_CAPACITANCE = (550+68+68) * 1e-6  # Example from Tesla M3 inverter
-PRECHARGE_RC = PRECHARGE_RESISTOR * INVERTER_CAPACITANCE
-
 
 class SBox:
     def __init__(self):
         # fields updated by user
-        self.voltage = 350
-        self.current = 0
+        self.voltage = 350.0  # Volts
+        self.current = 0.0  # Amps
+        self.precharge_resistor = 15.0  # Ohms - as fitted to SBox
+        # micro-Farads - example from Tesla M3 inverter
+        self.bus_capacitance = 550.0+68.0+68.0
 
         # fields updated from CAN
         self.msgs_per_sec = 0
@@ -76,8 +75,9 @@ class SBox:
         if self.contactor_setup:
             if self._pch_start is not None:
                 t = datetime.datetime.now() - self._pch_start
+                rc = self.precharge_resistor * self.bus_capacitance * 1e-06
                 voltage = self.voltage * \
-                    (1 - math.exp(-t.total_seconds()/PRECHARGE_RC))
+                    (1 - math.exp(-t.total_seconds()/rc))
                 return voltage
 
             if ((self.pos_contactor_closed or self.pch_contactor_closed) and
@@ -205,7 +205,7 @@ class SBox:
 
 
 class MainWindow(QMainWindow):
-    def __init__(self, sbox):
+    def __init__(self, sbox: SBox):
         super().__init__()
         self.sbox = sbox
 
@@ -238,6 +238,7 @@ class MainWindow(QMainWindow):
         self.edit_voltage = QDoubleSpinBox()
         self.edit_voltage.setRange(0, 500)
         self.edit_voltage.setValue(self.sbox.voltage)
+        self.edit_voltage.setSuffix(" V")
         self.edit_voltage.valueChanged.connect(self.on_voltage_changed)
         layout.addWidget(self.edit_voltage)
 
@@ -245,8 +246,27 @@ class MainWindow(QMainWindow):
         self.edit_current = QDoubleSpinBox()
         self.edit_current.setRange(-200.0, 200.0)
         self.edit_current.setValue(self.sbox.current)
+        self.edit_current.setSuffix(" A")
         self.edit_current.valueChanged.connect(self.on_current_changed)
         layout.addWidget(self.edit_current)
+
+        layout.addWidget(QLabel("Pre-charge resistor:"))
+        self.edit_precharge_resistor = QDoubleSpinBox()
+        self.edit_precharge_resistor.setRange(1.0, 1000.0)
+        self.edit_precharge_resistor.setValue(self.sbox.precharge_resistor)
+        self.edit_precharge_resistor.setSuffix(" Ω")
+        self.edit_precharge_resistor.valueChanged.connect(
+            self.on_precharge_resistor_changed)
+        layout.addWidget(self.edit_precharge_resistor)
+
+        layout.addWidget(QLabel("Bus capacitance:"))
+        self.edit_bus_capacitance = QDoubleSpinBox()
+        self.edit_bus_capacitance.setRange(1.0, 1000.0)
+        self.edit_bus_capacitance.setValue(self.sbox.bus_capacitance)
+        self.edit_bus_capacitance.setSuffix(" µF")
+        self.edit_bus_capacitance.valueChanged.connect(
+            self.on_bus_capacitance_changed)
+        layout.addWidget(self.edit_bus_capacitance)
 
         txGroup = QGroupBox("Enabled TX Messages")
         txLayout = QGridLayout()
@@ -271,14 +291,24 @@ class MainWindow(QMainWindow):
         self.refresh.start(250)
 
     @Slot(bool)
-    def on_voltage_changed(self, value):
+    def on_voltage_changed(self, value: float):
         print(f"Voltage now {value}")
         self.sbox.voltage = value
 
     @Slot(bool)
-    def on_current_changed(self, value):
+    def on_current_changed(self, value: float):
         print(f"Current now {value}")
         self.sbox.current = value
+
+    @Slot(bool)
+    def on_precharge_resistor_changed(self, value: float):
+        print(f"Pre-charge resistance now {value}")
+        self.sbox.precharge_resistor = value
+
+    @Slot(bool)
+    def on_bus_capacitance_changed(self, value: float):
+        print(f"Bus capacitance now {value}")
+        self.sbox.bus_capacitance = value
 
     @Slot()
     def refresh_ui(self):
